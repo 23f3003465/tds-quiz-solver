@@ -1,27 +1,23 @@
-from fastapi import FastAPI, Request
-from solver.fetch import fetch_quiz
-from solver.parse import parse_quiz
-from solver.submit import submit_answer
-import config
+from fastapi import FastAPI, Request, HTTPException
+from agent import solve_quiz
+from pydantic import BaseModel
+import os
 
 app = FastAPI()
 
-@app.post("/")
-async def solve_quiz(request: Request):
+SECRET = os.getenv("SECRET", "my_secret")  # Set in .env
+
+class QuizRequest(BaseModel):
+    email: str
+    secret: str
+    url: str
+
+@app.post("/solve")
+async def solve(request: QuizRequest):
+    if request.secret != SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
     try:
-        data = await request.json()
-    except:
-        return {"status": "Invalid JSON"}, 400
-
-    if data.get("secret") != config.STUDENT_SECRET:
-        return {"status": "Forbidden"}, 403
-
-    url = data.get("url")
-    if not url:
-        return {"status": "Missing URL"}, 400
-
-    # Fetch, parse, submit
-    quiz_content = await fetch_quiz(url)
-    answer = await parse_quiz(quiz_content)
-    result = await submit_answer(url, answer)
-    return result
+        answer = solve_quiz(request.url)
+        return {"email": request.email, "url": request.url, "answer": answer}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
